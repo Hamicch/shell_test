@@ -8,6 +8,7 @@
 #include "shell.h"
 #include "node.h"
 #include "executor.h"
+
 char *search_path(char *file)
 {
     char *PATH = getenv("PATH");
@@ -116,29 +117,55 @@ int do_simple_command(struct node_s *node)
     }
     
     int argc = 0;
-    long max_args = 255;
-    char *argv[max_args+1];/* keep 1 for the terminating NULL arg */
+    int targc = 0;
+    char **argv = NULL;
     char *str;
     
     while(child)
     {
         str = child->val.str;
-        argv[argc] = malloc(strlen(str)+1);
+        struct word_s *w = word_expand(str);
         
-	if(!argv[argc])
+        if(!w)
         {
-            free_argv(argc, argv);
-            return 0;
+            child = child->next_sibling;
+            continue;
+        }
+        struct word_s *w2 = w;
+        while(w2)
+        {
+            if(check_buffer_bounds(&argc, &targc, &argv))
+            {
+                str = malloc(strlen(w2->data)+1);
+                if(str)
+                {
+                    strcpy(str, w2->data);
+                    argv[argc++] = str;
+                }
+            }
+            w2 = w2->next;
         }
         
-	strcpy(argv[argc], str);
-        if(++argc >= max_args)
-        {
-            break;
-        }
+        free_all_words(w);
+        
         child = child->next_sibling;
     }
-    argv[argc] = NULL;
+    if(check_buffer_bounds(&argc, &targc, &argv))
+    {
+        argv[argc] = NULL;
+    }
+
+    int i = 0;
+    for( ; i < builtins_count; i++)
+    {
+        if(strcmp(argv[0], builtins[i].name) == 0)
+        {
+            builtins[i].func(argc, argv);
+            free_buffer(argc, argv);
+            return 1;
+        }
+    }
+
     pid_t child_pid = 0;
     if((child_pid = fork()) == 0)
     {
